@@ -297,17 +297,28 @@
   });
 
   canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-    const oldZoom = zoom;
+  e.preventDefault();
+  const oldZoom = zoom;
 
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    zoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
+  // Calcolo zoom target
+  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newZoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
 
-    const mouseX = e.clientX - width / 2;
-    const mouseY = e.clientY - height / 2;
-    offsetX = (offsetX + mouseX / oldZoom) * (oldZoom / zoom) - mouseX / zoom;
-    offsetY = (offsetY + mouseY / oldZoom) * (oldZoom / zoom) - mouseY / zoom;
-  }, { passive: false });
+  // Coordinate cursore relative al centro canvas
+  const mouseX = e.clientX - width / 2;
+  const mouseY = e.clientY - height / 2;
+
+  // Coordinate punto cursore in coordinate mondo prima dello zoom
+  const worldX = (mouseX) / oldZoom - offsetX;
+  const worldY = (mouseY) / oldZoom - offsetY;
+
+  // Aggiorna offset in modo che worldX, worldY rimanga sotto il cursore dopo zoom
+  offsetX = (mouseX) / newZoom - worldX;
+  offsetY = (mouseY) / newZoom - worldY;
+
+  zoom = newZoom;
+}, { passive: false });
+
 
   loadAssets();
 
