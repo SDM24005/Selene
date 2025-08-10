@@ -1,256 +1,318 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mappa di Immagini a Nodi (GitHub Pages)</title>
-    
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
-    
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #000a4b;
-            color: #e5e7eb;
-            margin: 0;
-            overflow: hidden;
-        }
-
-        #graph-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-        }
-
-        .node {
-            cursor: grab;
-            transition: filter 0.3s ease;
-        }
-        
-        .node:hover {
-            filter: url(#glow);
-        }
-
-        .node:active {
-            cursor: grabbing;
-        }
-        
-        /* Pannello dei controlli */
-        #controls {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background-color: rgba(26, 32, 44, 0.7);
-            backdrop-filter: blur(5px);
-            padding: 1rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            z-index: 10;
-        }
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        .control-group label {
-            font-size: 0.875rem;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 150px;
-            height: 4px;
-            background: #4a5568;
-            border-radius: 2px;
-            outline: none;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            background: #a0aec0;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-        input[type="range"]::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            background: #a0aec0;
-            cursor: pointer;
-            border-radius: 50%;
-        }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mappa Immagini - Fisica Globale</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: #000a4b;
+    font-family: sans-serif;
+    color: white;
+    user-select: none;
+  }
+  #canvas {
+    display: block;
+    cursor: grab;
+    width: 100vw;
+    height: 100vh;
+  }
+  #canvas:active {
+    cursor: grabbing;
+  }
+</style>
 </head>
 <body>
 
-    <div id="graph-container"></div>
-
-    <div id="controls">
-        <div class="control-group">
-            <label for="gravity-slider">Gravità</label>
-            <input type="range" id="gravity-slider" min="0" max="0.2" step="0.001" value="0.02">
-        </div>
-    </div>
+<canvas id="canvas"></canvas>
 
 <script>
-    // La funzione principale che avvia tutto.
-    async function initializeGraph() {
-        try {
-            // --- INIZIO CONFIGURAZIONE ---
-            // Sostituisci con il tuo username e il nome del tuo repository.
-            const GITHUB_USER = "SDM24005";
-            const GITHUB_REPO = "Selene";
-            const FOLDER_PATH = "public/img/preview";
-            
-            const apiUrl = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${FOLDER_PATH}`;
-            // --- FINE CONFIGURAZIONE ---
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let width, height;
 
-            // 1. CHIAMATA ALL'API DI GITHUB per ottenere i file
-            const response = await fetch(apiUrl);
-            if (!response.ok) {
-                throw new Error(`Errore nel caricare i dati da GitHub: ${response.statusText}`);
-            }
-            const folderContents = await response.json();
-            
-            // 2. Estraiamo solo i nomi dei file dall'array di oggetti
-            const imageFilenames = folderContents
-                .filter(item => item.type === 'file')
-                .map(item => item.name);
+  const imagesConfig = [
+    { id: 'img1', src: 'img/img1.webp', link: 'dettagli/pagina1.html', x: -150, y: 0, maxSize: 96 },
+    { id: 'img2', src: 'img/immagine2.webp', link: 'dettagli/pagina2.html', x: 150, y: 0, maxSize: 96 },
+    { id: 'img3', src: 'img/test.png', link: 'dettagli/pagina3.html', x: 0, y: 150, maxSize: 96 },
+    { id: 'img4', src: 'img/ring 4.png', link: 'dettagli/pagina4.html', x: 0, y: -200, maxSize: 128 },
+    { id: 'img5', src: 'img/another.png', link: 'dettagli/pagina5.html', x: 200, y: -150, maxSize: 80 },
+  ];
 
-            if (imageFilenames.length === 0) {
-                document.getElementById('graph-container').innerHTML = `<p style="text-align: center; padding-top: 50px;">Nessuna immagine trovata su GitHub nella cartella ${FOLDER_PATH}.</p>`;
-                return;
-            }
+  const physics = {
+    repulsion: 18000,
+    friction: 0.7,
+    gravity: 0.025,
+    dampening: 0.4,
+  };
 
-            // 3. PREPARAZIONE DEI DATI per D3.js
-            const imagePath = `https://${GITHUB_USER}.github.io/${GITHUB_REPO}/${FOLDER_PATH}/`;
-            const generatedNodes = imageFilenames.map(filename => ({
-                id: filename.substring(0, filename.lastIndexOf('.')),
-                img: imagePath + filename
-            }));
-            
-            const graphData = {
-                nodes: generatedNodes,
-                links: [
-                    { source: "flat", target: "cane" },
-                    { source: "flat", target: "citta" },
-                    { source: "aurora", target: "montagna" }
-                    // Aggiungi qui gli altri link come { source: "nome_nodo_1", target: "nome_nodo_2" }
-                ]
-            };
-            
-            // 4. DISEGNO DEL GRAFICO
-            drawGraph(graphData);
+  let zoom = 1;
+  let offsetX = 0;
+  let offsetY = 0;
+  let nodes = [];
 
-        } catch (error) {
-            console.error("Impossibile inizializzare il grafico:", error);
-            document.getElementById('graph-container').innerHTML = `<p style="text-align: center; padding-top: 50px;">Si è verificato un errore. Controlla la console per i dettagli.</p>`;
+  let isPanning = false;
+  let panStart = {x:0, y:0};
+  let isDraggingNode = false;
+  let dragNode = null;
+  let hasDragged = false;
+  let dragStartMouse = {x:0, y:0};
+
+  let time = 0;
+
+  class Node {
+    constructor(id, img, link, x, y, maxSize) {
+      this.id = id;
+      this.img = img;
+      this.link = link;
+      this.x = x; this.y = y;
+      this.vx = 0; this.vy = 0;
+      this.maxSize = maxSize;
+      this.width = 0;
+      this.height = 0;
+      this.computeSize();
+
+      this.wigglePhaseX = Math.random() * Math.PI * 2;
+      this.wigglePhaseY = Math.random() * Math.PI * 2;
+      this.wiggleFreqX = 0.0003 + Math.random() * 0.0005;
+      this.wiggleFreqY = 0.0003 + Math.random() * 0.0005;
+
+      this.dragOffsetX = 0;
+      this.dragOffsetY = 0;
+    }
+    computeSize() {
+      if (!this.img.width || !this.img.height) { this.width = this.height = this.maxSize; return; }
+      if (this.img.width > this.img.height) {
+          this.width = this.maxSize;
+          this.height = this.img.height * (this.maxSize / this.img.width);
+      } else {
+          this.height = this.maxSize;
+          this.width = this.img.width * (this.maxSize / this.img.height);
+      }
+    }
+    containsPoint(px, py) {
+      const halfWidth = this.width / 2;
+      const halfHeight = this.height / 2;
+      return px >= this.x - halfWidth && px <= this.x + halfWidth &&
+             py >= this.y - halfHeight && py <= this.y + halfHeight;
+    }
+    applyForce(fx, fy) {
+      this.vx += fx;
+      this.vy += fy;
+    }
+    update() {
+      if (this !== dragNode) {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= physics.friction;
+        this.vy *= physics.friction;
+      }
+    }
+  }
+
+  function applyForces() {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nodeA = nodes[i];
+        const nodeB = nodes[j];
+        const dx = nodeB.x - nodeA.x;
+        const dy = nodeB.y - nodeA.y;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq > 1) {
+          const force = physics.repulsion / distanceSq;
+          const angle = Math.atan2(dy, dx);
+          const fx = -force * Math.cos(angle);
+          const fy = -force * Math.sin(angle);
+          nodeA.applyForce(fx * physics.dampening, fy * physics.dampening);
+          nodeB.applyForce(-fx * physics.dampening, -fy * physics.dampening);
         }
+      }
     }
 
-    // Funzione che si occupa del rendering del grafo con D3.js
-    function drawGraph(graphData) {
-        const container = document.getElementById('graph-container');
-        let width = container.clientWidth;
-        let height = container.clientHeight;
-        const nodeSize = 80;
-
-        const svg = d3.select(container).append("svg")
-            .attr("width", width)
-            .attr("height", height);
-
-        const zoomableGroup = svg.append("g");
-
-        const zoom = d3.zoom()
-            .scaleExtent([0.2, 2.5])
-            .on("zoom", (event) => {
-                zoomableGroup.attr("transform", event.transform);
-            });
-        
-        svg.call(zoom).on("dblclick.zoom", null);
-
-        const defs = svg.append("defs");
-        const filter = defs.append("filter").attr("id", "glow");
-        filter.append("feGaussianBlur").attr("stdDeviation", "4.5").attr("result", "coloredBlur");
-        const feMerge = filter.append("feMerge");
-        feMerge.append("feMergeNode").attr("in", "coloredBlur");
-        feMerge.append("feMergeNode").attr("in", "SourceGraphic");
-
-        const forceX = d3.forceX(width / 2).strength(0.02);
-        const forceY = d3.forceY(height / 2).strength(0.02);
-
-        const simulation = d3.forceSimulation(graphData.nodes)
-            .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(220).strength(0.05))
-            .force("charge", d3.forceManyBody().strength(-500))
-            .force("x", forceX)
-            .force("y", forceY)
-            .alphaDecay(0.01);
-
-        const nodeGroup = zoomableGroup.append("g").attr("class", "nodes");
-        
-        const nodes = nodeGroup.selectAll("g.node-group")
-            .data(graphData.nodes, d => d.id)
-            .join(enter => {
-                const g = enter.append("g").attr("class", "node-group");
-                
-                g.append("image")
-                    .attr("class", "node")
-                    .attr("xlink:href", d => d.img)
-                    .attr("width", nodeSize)
-                    .attr("height", nodeSize);
-                
-                g.call(d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended));
-                
-                return g;
-            });
-
-        simulation.on("tick", () => {
-            nodes.attr("transform", d => `translate(${d.x - nodeSize / 2}, ${d.y - nodeSize / 2})`);
-        });
-
-        d3.select("#gravity-slider").on("input", (event) => {
-            const strength = +event.target.value;
-            forceX.strength(strength);
-            forceY.strength(strength);
-            simulation.alpha(0.3).restart();
-        });
-
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x; d.fy = d.y;
-        }
-        function dragged(event, d) {
-            d.fx = event.x; d.fy = event.y;
-        }
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null; d.fy = null;
-        }
-
-        window.addEventListener('resize', () => {
-            width = container.clientWidth;
-            height = container.clientHeight;
-            svg.attr("width", width).attr("height", height);
-            forceX.x(width / 2);
-            forceY.y(height / 2);
-            simulation.alpha(0.3).restart();
-        });
+    for (const node of nodes) {
+      const dx = -node.x;
+      const dy = -node.y;
+      node.applyForce(dx * physics.gravity * physics.dampening, dy * physics.gravity * physics.dampening);
     }
 
-    // Avvia il processo quando la pagina viene caricata.
-    initializeGraph();
+    const amplitude = 0.4;
+    for (const node of nodes) {
+      if (node !== dragNode) {
+        const wiggleX = amplitude * Math.sin(time * node.wiggleFreqX + node.wigglePhaseX);
+        const wiggleY = amplitude * Math.cos(time * node.wiggleFreqY + node.wigglePhaseY);
+        node.applyForce(wiggleX, wiggleY);
+      }
+    }
+
+    time++;
+  }
+
+  function screenToWorld(sx, sy) {
+    return { x: (sx - width / 2) / zoom - offsetX, y: (sy - height / 2) / zoom - offsetY };
+  }
+
+  function autoZoomAndCenter() {
+    if (nodes.length === 0) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+      minX = Math.min(minX, node.x - node.width / 2);
+      maxX = Math.max(maxX, node.x + node.width / 2);
+      minY = Math.min(minY, node.y - node.height / 2);
+      maxY = Math.max(maxY, node.y + node.height / 2);
+    });
+    const worldWidth = maxX - minX;
+    const worldHeight = maxY - minY;
+    if (worldWidth === 0 || worldHeight === 0) return;
+    zoom = Math.min((width / worldWidth) * 0.8, (height / worldHeight) * 0.8, 2);
+    const centerX = minX + worldWidth / 2;
+    const centerY = minY + worldHeight / 2;
+    offsetX = -centerX;
+    offsetY = -centerY;
+  }
+
+  function loadAssets() {
+    let loadedCount = 0;
+    if (imagesConfig.length === 0) {
+      setupAndStart();
+      return;
+    }
+    imagesConfig.forEach(item => {
+      const img = new Image();
+      img.src = item.src;
+      img.onload = () => {
+        const node = new Node(item.id, img, item.link, item.x, item.y, item.maxSize);
+        nodes.push(node);
+        checkIfDone();
+      };
+      img.onerror = () => {
+        console.warn('Immagine non trovata:', item.src);
+        checkIfDone();
+      };
+    });
+
+    function checkIfDone() {
+      loadedCount++;
+      if (loadedCount === imagesConfig.length) {
+        setupAndStart();
+      }
+    }
+  }
+
+  function setupAndStart() {
+    resizeCanvas();
+    autoZoomAndCenter();
+    animate();
+  }
+
+  function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#000a4b';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(offsetX, offsetY);
+
+    for (const node of nodes) {
+      ctx.drawImage(node.img, node.x - node.width / 2, node.y - node.height / 2, node.width, node.height);
+    }
+  }
+
+  function animate() {
+    applyForces();
+    for (const node of nodes) {
+      node.update();
+    }
+    draw();
+    requestAnimationFrame(animate);
+  }
+
+  function resizeCanvas() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+  }
+  window.addEventListener('resize', () => { resizeCanvas(); autoZoomAndCenter(); });
+
+  canvas.addEventListener('mousedown', e => {
+    hasDragged = false;
+    dragStartMouse = { x: e.clientX, y: e.clientY };
+    const pos = screenToWorld(e.clientX, e.clientY);
+
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (node.containsPoint(pos.x, pos.y)) {
+        isDraggingNode = true;
+        dragNode = node;
+        dragNode.vx = dragNode.vy = 0;
+        dragNode.dragOffsetX = pos.x - node.x;
+        dragNode.dragOffsetY = pos.y - node.y;
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+    isPanning = true;
+    panStart.x = e.clientX;
+    panStart.y = e.clientY;
+  });
+
+  canvas.addEventListener('mousemove', e => {
+    if (!hasDragged && (isPanning || isDraggingNode)) {
+      const dx = e.clientX - dragStartMouse.x;
+      const dy = e.clientY - dragStartMouse.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 5) { hasDragged = true; }
+    }
+    if (isDraggingNode && dragNode) {
+      const pos = screenToWorld(e.clientX, e.clientY);
+      dragNode.x = pos.x - dragNode.dragOffsetX;
+      dragNode.y = pos.y - dragNode.dragOffsetY;
+      dragNode.vx = dragNode.vy = 0;
+    } else if (isPanning) {
+      canvas.style.cursor = 'grabbing';
+      const newOffsetX = offsetX + (e.clientX - panStart.x) / zoom;
+      const newOffsetY = offsetY + (e.clientY - panStart.y) / zoom;
+      offsetX = newOffsetX;
+      offsetY = newOffsetY;
+      panStart.x = e.clientX;
+      panStart.y = e.clientY;
+    }
+  });
+
+  function releaseInteraction() {
+    if (isDraggingNode && dragNode && !hasDragged) {
+      window.open(dragNode.link, '_self');
+    }
+    isDraggingNode = false;
+    dragNode = null;
+    isPanning = false;
+    canvas.style.cursor = 'grab';
+  }
+
+  canvas.addEventListener('mouseup', releaseInteraction);
+  canvas.addEventListener('mouseleave', () => {
+    isDraggingNode = false; dragNode = null; isPanning = false; canvas.style.cursor = 'grab';
+  });
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const oldZoom = zoom;
+
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    zoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
+
+    const mouseX = e.clientX - width / 2;
+    const mouseY = e.clientY - height / 2;
+    offsetX = (offsetX + mouseX / oldZoom) * (oldZoom / zoom) - mouseX / zoom;
+    offsetY = (offsetY + mouseY / oldZoom) * (oldZoom / zoom) - mouseY / zoom;
+  }, { passive: false });
+
+  loadAssets();
+
+})();
 </script>
+
 </body>
 </html>
