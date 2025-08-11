@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Selene</title>
+<title>Selene Ulteriormente Ottimizzato</title>
 <style>
   html, body {
     margin: 0; padding: 0; overflow: hidden;
@@ -33,26 +33,23 @@
   const ctx = canvas.getContext('2d');
   let width, height;
 
-  const imagesConfig = [
-    { id: 'img1', src: 'img/img1.webp', link: 'dettagli/pagina1.html', x: -150, y: 0, maxSize: 96 },
-    { id: 'img2', src: 'img/immagine2.webp', link: 'dettagli/pagina2.html', x: 150, y: 0, maxSize: 96 },
-    { id: 'img3', src: 'img/test.png', link: 'dettagli/pagina3.html', x: 0, y: 150, maxSize: 96 },
-    { id: 'img4', src: 'img/ring 4.png', link: 'dettagli/pagina4.html', x: 0, y: -200, maxSize: 128 },
-    { id: 'img5', src: 'img/another.png', link: 'dettagli/pagina5.html', x: 200, y: -150, maxSize: 80 },
-  ];
-
   const physics = {
     repulsion: 18000,
     friction: 0.7,
     gravity: 0.025,
     dampening: 0.4,
+    repulsionDistanceSq: 300 * 300
   };
+  
+  // --- IMPOSTAZIONI DI OTTIMIZZAZIONE ---
+  const ZOOM_LOD_THRESHOLD = 1.0; // Soglia di zoom per cambiare la qualità dell'immagine
+  const VISIBILITY_MARGIN = 300; // Buffer per il culling degli oggetti
 
   let zoom = 1;
   let offsetX = 0;
   let offsetY = 0;
   let nodes = [];
-
+  
   let isPanning = false;
   let panStart = {x:0, y:0};
   let isDraggingNode = false;
@@ -61,18 +58,20 @@
   let dragStartMouse = {x:0, y:0};
 
   let time = 0;
+  const imageCache = new Map();
 
+  // --- CLASSE NODE AGGIORNATA PER LOD ---
   class Node {
-    constructor(id, img, link, x, y, maxSize) {
+    constructor(id, link, x, y, maxSize, imageName, imageNameLow) {
       this.id = id;
-      this.img = img;
       this.link = link;
       this.x = x; this.y = y;
       this.vx = 0; this.vy = 0;
-      this.maxSize = maxSize;
-      this.width = 0;
-      this.height = 0;
-      this.computeSize();
+      this.maxSize = maxSize || 96;
+      this.width = this.height = this.maxSize;
+      
+      this.imageName = imageName;
+      this.imageNameLow = imageNameLow; // Nome dell'immagine a bassa risoluzione
 
       this.wigglePhaseX = Math.random() * Math.PI * 2;
       this.wigglePhaseY = Math.random() * Math.PI * 2;
@@ -81,27 +80,38 @@
 
       this.dragOffsetX = 0;
       this.dragOffsetY = 0;
+      this.isVisible = false;
+      
+      this.imgHigh = null;      // Oggetto per immagine HD
+      this.imgLow = null;       // Oggetto per immagine LD
+      this.imgToDraw = null;    // Immagine da disegnare nel frame corrente
     }
+    
     computeSize() {
-      if (!this.img.width || !this.img.height) { this.width = this.height = this.maxSize; return; }
-      if (this.img.width > this.img.height) {
+      const img = this.imgHigh || this.imgLow; // Calcola le dimensioni sull'immagine migliore disponibile
+      if (!img || !img.width || !img.height) return;
+
+      if (img.width > img.height) {
           this.width = this.maxSize;
-          this.height = this.img.height * (this.maxSize / this.img.width);
+          this.height = img.height * (this.maxSize / img.width);
       } else {
           this.height = this.maxSize;
-          this.width = this.img.width * (this.maxSize / this.img.height);
+          this.width = img.width * (this.maxSize / img.height);
       }
     }
+    
     containsPoint(px, py) {
       const halfWidth = this.width / 2;
       const halfHeight = this.height / 2;
       return px >= this.x - halfWidth && px <= this.x + halfWidth &&
              py >= this.y - halfHeight && py <= this.y + halfHeight;
     }
+    
     applyForce(fx, fy) {
       this.vx += fx;
       this.vy += fy;
     }
+    
     update() {
       if (this !== dragNode) {
         this.x += this.vx;
@@ -112,15 +122,22 @@
     }
   }
 
+  // --- FISICA OTTIMIZZATA ---
   function applyForces() {
+    // Ciclo di repulsione ottimizzato: evita di creare un nuovo array con .filter()
     for (let i = 0; i < nodes.length; i++) {
+      const nodeA = nodes[i];
+      if (!nodeA.isVisible) continue; // Controlla la visibilità qui
+      
       for (let j = i + 1; j < nodes.length; j++) {
-        const nodeA = nodes[i];
         const nodeB = nodes[j];
+        if (!nodeB.isVisible) continue; // E qui
+
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
         const distanceSq = dx * dx + dy * dy;
-        if (distanceSq > 1) {
+        
+        if (distanceSq < physics.repulsionDistanceSq && distanceSq > 1) {
           const force = physics.repulsion / distanceSq;
           const angle = Math.atan2(dy, dx);
           const fx = -force * Math.cos(angle);
@@ -131,22 +148,160 @@
       }
     }
 
+    // Gravità e 'Wiggle'
     for (const node of nodes) {
+      if (!node.isVisible) continue; // Controlla la visibilità anche qui
+
       const dx = -node.x;
       const dy = -node.y;
       node.applyForce(dx * physics.gravity * physics.dampening, dy * physics.gravity * physics.dampening);
-    }
-
-    const amplitude = 0.4;
-    for (const node of nodes) {
+      
+      const amplitude = 0.4;
       if (node !== dragNode) {
         const wiggleX = amplitude * Math.sin(time * node.wiggleFreqX + node.wigglePhaseX);
         const wiggleY = amplitude * Math.cos(time * node.wiggleFreqY + node.wigglePhaseY);
         node.applyForce(wiggleX, wiggleY);
       }
     }
-
     time++;
+  }
+  
+  // --- NUOVA LOGICA DI CARICAMENTO IMMAGINI (LOD) ---
+  function manageImageLoading() {
+    nodes.forEach(node => {
+      if (!node.isVisible) {
+        node.imgToDraw = null; // Nulla da disegnare se non visibile
+        return;
+      }
+
+      const wantsHighRes = zoom > ZOOM_LOD_THRESHOLD;
+
+      if (wantsHighRes) {
+        if (node.imgHigh) {
+          node.imgToDraw = node.imgHigh;
+        } else {
+          loadImage(node, 'high');
+          node.imgToDraw = node.imgLow; // Fallback su low-res mentre carica
+        }
+      } else {
+        if (node.imgLow) {
+          node.imgToDraw = node.imgLow;
+        } else {
+          loadImage(node, 'low');
+          node.imgToDraw = node.imgHigh; // Fallback su high-res se disponibile
+        }
+      }
+    });
+  }
+
+  function loadImage(node, quality) {
+    const isHigh = quality === 'high';
+    const imageName = isHigh ? node.imageName : node.imageNameLow;
+    if (!imageName) return;
+
+    if ((isHigh && node.imgHigh) || (!isHigh && node.imgLow)) return; // Già caricata
+    
+    let cachedImg = imageCache.get(imageName);
+    if (cachedImg) {
+      if (cachedImg.complete) {
+        if (isHigh) { node.imgHigh = cachedImg; node.computeSize(); }
+        else { node.imgLow = cachedImg; }
+      }
+      return;
+    }
+
+    const img = new Image();
+    img.src = 'img/' + imageName;
+    imageCache.set(imageName, img); // Metti in cache per evitare richieste multiple
+
+    img.onload = () => {
+      if (isHigh) {
+        node.imgHigh = img;
+        node.computeSize();
+      } else {
+        node.imgLow = img;
+      }
+    };
+    img.onerror = () => console.warn('Immagine non trovata:', img.src);
+  }
+
+  // --- FUNZIONI PRINCIPALI E DI UTILITY ---
+  function loadAssetsFromJSON(url) {
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (!Array.isArray(data)) return console.error('JSON non è un array');
+        
+        const gridSpacing = 160;
+        const gridCols = Math.ceil(Math.sqrt(data.length));
+
+        data.forEach((item, i) => {
+          const col = i % gridCols;
+          const row = Math.floor(i / gridCols);
+          const x = col * gridSpacing - (gridCols * gridSpacing) / 2;
+          const y = row * gridSpacing - (gridCols * gridSpacing) / 2;
+          // Passa entrambi i nomi delle immagini al costruttore
+          const node = new Node(i, item.link, x, y, 96, item.name, item.name_low);
+          nodes.push(node);
+        });
+
+        setupAndStart();
+      })
+      .catch(err => console.error('Errore caricamento JSON:', err));
+  }
+
+  function setupAndStart() {
+    resizeCanvas();
+    autoZoomAndCenter();
+    animate();
+  }
+
+  // --- FUNZIONE DRAW AGGIORNATA ---
+  function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#000a4b';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(offsetX, offsetY);
+
+    updateVisibility();
+    manageImageLoading(); // Chiama la nuova funzione di gestione immagini
+
+    for (const node of nodes) {
+      if (!node.isVisible || !node.imgToDraw) continue;
+
+      // La vecchia logica di 'scale' non è più necessaria
+      const drawWidth = node.width;
+      const drawHeight = node.height;
+      ctx.drawImage(node.imgToDraw, node.x - drawWidth / 2, node.y - drawHeight / 2, drawWidth, drawHeight);
+    }
+  }
+
+  function animate() {
+    applyForces();
+    for (const node of nodes) {
+      node.update();
+    }
+    draw();
+    requestAnimationFrame(animate);
+  }
+
+  function updateVisibility() {
+    const left = -offsetX - width / 2 / zoom - VISIBILITY_MARGIN;
+    const right = -offsetX + width / 2 / zoom + VISIBILITY_MARGIN;
+    const top = -offsetY - height / 2 / zoom - VISIBILITY_MARGIN;
+    const bottom = -offsetY + height / 2 / zoom + VISIBILITY_MARGIN;
+
+    nodes.forEach(node => {
+      const nodeLeft = node.x - node.width / 2;
+      const nodeRight = node.x + node.width / 2;
+      const nodeTop = node.y - node.height / 2;
+      const nodeBottom = node.y + node.height / 2;
+      node.isVisible = !(nodeRight < left || nodeLeft > right || nodeBottom < top || nodeTop > bottom);
+    });
   }
 
   function screenToWorld(sx, sy) {
@@ -165,68 +320,11 @@
     const worldWidth = maxX - minX;
     const worldHeight = maxY - minY;
     if (worldWidth === 0 || worldHeight === 0) return;
-    zoom = Math.min((width / worldWidth) * 0.8, (height / worldHeight) * 0.8, 2);
+    zoom = Math.min((width / worldWidth) * 0.7, (height / worldHeight) * 0.7, 2);
     const centerX = minX + worldWidth / 2;
     const centerY = minY + worldHeight / 2;
     offsetX = -centerX;
     offsetY = -centerY;
-  }
-
-  function loadAssets() {
-    let loadedCount = 0;
-    if (imagesConfig.length === 0) {
-      setupAndStart();
-      return;
-    }
-    imagesConfig.forEach(item => {
-      const img = new Image();
-      img.src = item.src;
-      img.onload = () => {
-        const node = new Node(item.id, img, item.link, item.x, item.y, item.maxSize);
-        nodes.push(node);
-        checkIfDone();
-      };
-      img.onerror = () => {
-        console.warn('Immagine non trovata:', item.src);
-        checkIfDone();
-      };
-    });
-
-    function checkIfDone() {
-      loadedCount++;
-      if (loadedCount === imagesConfig.length) {
-        setupAndStart();
-      }
-    }
-  }
-
-  function setupAndStart() {
-    resizeCanvas();
-    autoZoomAndCenter();
-    animate();
-  }
-
-  function draw() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#000a4b';
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.translate(width / 2, height / 2);
-    ctx.scale(zoom, zoom);
-    ctx.translate(offsetX, offsetY);
-
-    for (const node of nodes) {
-      ctx.drawImage(node.img, node.x - node.width / 2, node.y - node.height / 2, node.width, node.height);
-    }
-  }
-
-  function animate() {
-    applyForces();
-    for (const node of nodes) {
-      node.update();
-    }
-    draw();
-    requestAnimationFrame(animate);
   }
 
   function resizeCanvas() {
@@ -235,6 +333,8 @@
     canvas.width = width;
     canvas.height = height;
   }
+  
+  // --- GESTIONE EVENTI (INVARIATA) ---
   window.addEventListener('resize', () => { resizeCanvas(); autoZoomAndCenter(); });
 
   canvas.addEventListener('mousedown', e => {
@@ -244,7 +344,7 @@
 
     for (let i = nodes.length - 1; i >= 0; i--) {
       const node = nodes[i];
-      if (node.containsPoint(pos.x, pos.y)) {
+      if (node.isVisible && node.containsPoint(pos.x, pos.y)) {
         isDraggingNode = true;
         dragNode = node;
         dragNode.vx = dragNode.vy = 0;
@@ -272,10 +372,8 @@
       dragNode.vx = dragNode.vy = 0;
     } else if (isPanning) {
       canvas.style.cursor = 'grabbing';
-      const newOffsetX = offsetX + (e.clientX - panStart.x) / zoom;
-      const newOffsetY = offsetY + (e.clientY - panStart.y) / zoom;
-      offsetX = newOffsetX;
-      offsetY = newOffsetY;
+      offsetX += (e.clientX - panStart.x) / zoom;
+      offsetY += (e.clientY - panStart.y) / zoom;
       panStart.x = e.clientX;
       panStart.y = e.clientY;
     }
@@ -297,30 +395,21 @@
   });
 
   canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const oldZoom = zoom;
+    e.preventDefault();
+    const oldZoom = zoom;
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
+    const mouseX = e.clientX - width / 2;
+    const mouseY = e.clientY - height / 2;
+    const worldX = (mouseX) / oldZoom - offsetX;
+    const worldY = (mouseY) / oldZoom - offsetY;
+    offsetX = (mouseX) / newZoom - worldX;
+    offsetY = (mouseY) / newZoom - worldY;
+    zoom = newZoom;
+  }, { passive: false });
 
-  // Calcolo zoom target
-  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-  const newZoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
-
-  // Coordinate cursore relative al centro canvas
-  const mouseX = e.clientX - width / 2;
-  const mouseY = e.clientY - height / 2;
-
-  // Coordinate punto cursore in coordinate mondo prima dello zoom
-  const worldX = (mouseX) / oldZoom - offsetX;
-  const worldY = (mouseY) / oldZoom - offsetY;
-
-  // Aggiorna offset in modo che worldX, worldY rimanga sotto il cursore dopo zoom
-  offsetX = (mouseX) / newZoom - worldX;
-  offsetY = (mouseY) / newZoom - worldY;
-
-  zoom = newZoom;
-}, { passive: false });
-
-
-  loadAssets();
+  // Avvia il caricamento
+  loadAssetsFromJSON('images.json');
 
 })();
 </script>

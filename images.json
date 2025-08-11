@@ -1,0 +1,22 @@
+[
+  {
+    "link": "https://google.com",
+    "name": "img1.webp",
+    "name_low": "bulba.webp" 
+  },
+  {
+    "link": "https://bing.com",
+    "name": "immagine2.webp",
+    "name_low": "bulba.webp"
+  },
+  {
+    "link": "https://bing.com",
+    "name": "test.png",
+    "name_low": "bulba.webp"
+  },
+  {
+    "link": "https://bing.com",
+    "name": "ring 4.png",
+    "name_low": "bulba.webp"
+  }
+]
