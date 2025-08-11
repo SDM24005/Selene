@@ -2,8 +2,8 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Selene Ulteriormente Ottimizzato</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>Selene Mobile Friendly</title>
 <style>
   html, body {
     margin: 0; padding: 0; overflow: hidden;
@@ -11,6 +11,7 @@
     font-family: sans-serif;
     color: white;
     user-select: none;
+    touch-action: none; /* Impedisce il comportamento di default del browser come lo zoom */
   }
   #canvas {
     display: block;
@@ -42,8 +43,8 @@
   };
   
   // --- IMPOSTAZIONI DI OTTIMIZZAZIONE ---
-  const ZOOM_LOD_THRESHOLD = 1.0; // Soglia di zoom per cambiare la qualità dell'immagine
-  const VISIBILITY_MARGIN = 300; // Buffer per il culling degli oggetti
+  const ZOOM_LOD_THRESHOLD = 1.0; 
+  const VISIBILITY_MARGIN = 300; 
 
   let zoom = 1;
   let offsetX = 0;
@@ -60,7 +61,10 @@
   let time = 0;
   const imageCache = new Map();
 
-  // --- CLASSE NODE AGGIORNATA PER LOD ---
+  // --- VARIABILI PER LA GESTIONE TOUCH ---
+  let touchCache = {}; // Per memorizzare i punti di contatto
+  let touchDistance = null; // Distanza tra due dita per lo zoom
+
   class Node {
     constructor(id, link, x, y, maxSize, imageName, imageNameLow) {
       this.id = id;
@@ -71,7 +75,7 @@
       this.width = this.height = this.maxSize;
       
       this.imageName = imageName;
-      this.imageNameLow = imageNameLow; // Nome dell'immagine a bassa risoluzione
+      this.imageNameLow = imageNameLow; 
 
       this.wigglePhaseX = Math.random() * Math.PI * 2;
       this.wigglePhaseY = Math.random() * Math.PI * 2;
@@ -82,13 +86,13 @@
       this.dragOffsetY = 0;
       this.isVisible = false;
       
-      this.imgHigh = null;      // Oggetto per immagine HD
-      this.imgLow = null;       // Oggetto per immagine LD
-      this.imgToDraw = null;    // Immagine da disegnare nel frame corrente
+      this.imgHigh = null;      
+      this.imgLow = null;       
+      this.imgToDraw = null;    
     }
     
     computeSize() {
-      const img = this.imgHigh || this.imgLow; // Calcola le dimensioni sull'immagine migliore disponibile
+      const img = this.imgHigh || this.imgLow; 
       if (!img || !img.width || !img.height) return;
 
       if (img.width > img.height) {
@@ -122,16 +126,14 @@
     }
   }
 
-  // --- FISICA OTTIMIZZATA ---
   function applyForces() {
-    // Ciclo di repulsione ottimizzato: evita di creare un nuovo array con .filter()
     for (let i = 0; i < nodes.length; i++) {
       const nodeA = nodes[i];
-      if (!nodeA.isVisible) continue; // Controlla la visibilità qui
+      if (!nodeA.isVisible) continue; 
       
       for (let j = i + 1; j < nodes.length; j++) {
         const nodeB = nodes[j];
-        if (!nodeB.isVisible) continue; // E qui
+        if (!nodeB.isVisible) continue; 
 
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
@@ -148,9 +150,8 @@
       }
     }
 
-    // Gravità e 'Wiggle'
     for (const node of nodes) {
-      if (!node.isVisible) continue; // Controlla la visibilità anche qui
+      if (!node.isVisible) continue; 
 
       const dx = -node.x;
       const dy = -node.y;
@@ -166,11 +167,10 @@
     time++;
   }
   
-  // --- NUOVA LOGICA DI CARICAMENTO IMMAGINI (LOD) ---
   function manageImageLoading() {
     nodes.forEach(node => {
       if (!node.isVisible) {
-        node.imgToDraw = null; // Nulla da disegnare se non visibile
+        node.imgToDraw = null; 
         return;
       }
 
@@ -181,14 +181,14 @@
           node.imgToDraw = node.imgHigh;
         } else {
           loadImage(node, 'high');
-          node.imgToDraw = node.imgLow; // Fallback su low-res mentre carica
+          node.imgToDraw = node.imgLow; 
         }
       } else {
         if (node.imgLow) {
           node.imgToDraw = node.imgLow;
         } else {
           loadImage(node, 'low');
-          node.imgToDraw = node.imgHigh; // Fallback su high-res se disponibile
+          node.imgToDraw = node.imgHigh; 
         }
       }
     });
@@ -199,7 +199,7 @@
     const imageName = isHigh ? node.imageName : node.imageNameLow;
     if (!imageName) return;
 
-    if ((isHigh && node.imgHigh) || (!isHigh && node.imgLow)) return; // Già caricata
+    if ((isHigh && node.imgHigh) || (!isHigh && node.imgLow)) return; 
     
     let cachedImg = imageCache.get(imageName);
     if (cachedImg) {
@@ -212,7 +212,7 @@
 
     const img = new Image();
     img.src = 'img/' + imageName;
-    imageCache.set(imageName, img); // Metti in cache per evitare richieste multiple
+    imageCache.set(imageName, img); 
 
     img.onload = () => {
       if (isHigh) {
@@ -225,7 +225,6 @@
     img.onerror = () => console.warn('Immagine non trovata:', img.src);
   }
 
-  // --- FUNZIONI PRINCIPALI E DI UTILITY ---
   function loadAssetsFromJSON(url) {
     fetch(url)
       .then(res => res.json())
@@ -240,7 +239,6 @@
           const row = Math.floor(i / gridCols);
           const x = col * gridSpacing - (gridCols * gridSpacing) / 2;
           const y = row * gridSpacing - (gridCols * gridSpacing) / 2;
-          // Passa entrambi i nomi delle immagini al costruttore
           const node = new Node(i, item.link, x, y, 96, item.name, item.name_low);
           nodes.push(node);
         });
@@ -256,7 +254,6 @@
     animate();
   }
 
-  // --- FUNZIONE DRAW AGGIORNATA ---
   function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
@@ -268,12 +265,11 @@
     ctx.translate(offsetX, offsetY);
 
     updateVisibility();
-    manageImageLoading(); // Chiama la nuova funzione di gestione immagini
+    manageImageLoading(); 
 
     for (const node of nodes) {
       if (!node.isVisible || !node.imgToDraw) continue;
 
-      // La vecchia logica di 'scale' non è più necessaria
       const drawWidth = node.width;
       const drawHeight = node.height;
       ctx.drawImage(node.imgToDraw, node.x - drawWidth / 2, node.y - drawHeight / 2, drawWidth, drawHeight);
@@ -334,13 +330,23 @@
     canvas.height = height;
   }
   
-  // --- GESTIONE EVENTI (INVARIATA) ---
   window.addEventListener('resize', () => { resizeCanvas(); autoZoomAndCenter(); });
 
-  canvas.addEventListener('mousedown', e => {
+  // --- GESTIONE DEGLI EVENTI UNIFICATA PER MOUSE E TOUCH ---
+  function getMouseOrTouchPos(e) {
+    if (e.touches && e.touches.length > 0) {
+      // Per il touch, restituisce il primo punto di contatto
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else {
+      // Per il mouse
+      return { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  function handleInteractionStart(e) {
     hasDragged = false;
-    dragStartMouse = { x: e.clientX, y: e.clientY };
-    const pos = screenToWorld(e.clientX, e.clientY);
+    dragStartMouse = getMouseOrTouchPos(e);
+    const pos = screenToWorld(dragStartMouse.x, dragStartMouse.y);
 
     for (let i = nodes.length - 1; i >= 0; i--) {
       const node = nodes[i];
@@ -355,31 +361,62 @@
       }
     }
     isPanning = true;
-    panStart.x = e.clientX;
-    panStart.y = e.clientY;
-  });
+    panStart.x = dragStartMouse.x;
+    panStart.y = dragStartMouse.y;
+  }
 
-  canvas.addEventListener('mousemove', e => {
-    if (!hasDragged && (isPanning || isDraggingNode)) {
-      const dx = e.clientX - dragStartMouse.x;
-      const dy = e.clientY - dragStartMouse.y;
-      if (Math.sqrt(dx * dx + dy * dy) > 5) { hasDragged = true; }
-    }
-    if (isDraggingNode && dragNode) {
-      const pos = screenToWorld(e.clientX, e.clientY);
-      dragNode.x = pos.x - dragNode.dragOffsetX;
-      dragNode.y = pos.y - dragNode.dragOffsetY;
-      dragNode.vx = dragNode.vy = 0;
-    } else if (isPanning) {
-      canvas.style.cursor = 'grabbing';
-      offsetX += (e.clientX - panStart.x) / zoom;
-      offsetY += (e.clientY - panStart.y) / zoom;
-      panStart.x = e.clientX;
-      panStart.y = e.clientY;
-    }
-  });
+  function handleInteractionMove(e) {
+    if (e.touches && e.touches.length === 2) {
+      // GESTIONE PINCH-TO-ZOOM (con due dita)
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const newDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
 
-  function releaseInteraction() {
+      if (touchDistance === null) {
+        touchDistance = newDistance;
+        return; // Inizializza la distanza senza zoom
+      }
+
+      const zoomFactor = newDistance / touchDistance;
+      const oldZoom = zoom;
+      const newZoom = Math.min(Math.max(0.1, oldZoom * zoomFactor), 10);
+      
+      const centerX = (t1.clientX + t2.clientX) / 2;
+      const centerY = (t1.clientY + t2.clientY) / 2;
+      const mouseX = centerX - width / 2;
+      const mouseY = centerY - height / 2;
+      const worldX = (mouseX) / oldZoom - offsetX;
+      const worldY = (mouseY) / oldZoom - offsetY;
+      offsetX = (mouseX) / newZoom - worldX;
+      offsetY = (mouseY) / newZoom - worldY;
+
+      zoom = newZoom;
+      touchDistance = newDistance;
+
+    } else {
+      // GESTIONE PAN/DRAG (con un dito o mouse)
+      const currentPos = getMouseOrTouchPos(e);
+      if (!hasDragged && (isPanning || isDraggingNode)) {
+        const dx = currentPos.x - dragStartMouse.x;
+        const dy = currentPos.y - dragStartMouse.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 5) { hasDragged = true; }
+      }
+      if (isDraggingNode && dragNode) {
+        const pos = screenToWorld(currentPos.x, currentPos.y);
+        dragNode.x = pos.x - dragNode.dragOffsetX;
+        dragNode.y = pos.y - dragNode.dragOffsetY;
+        dragNode.vx = dragNode.vy = 0;
+      } else if (isPanning) {
+        canvas.style.cursor = 'grabbing';
+        offsetX += (currentPos.x - panStart.x) / zoom;
+        offsetY += (currentPos.y - panStart.y) / zoom;
+        panStart.x = currentPos.x;
+        panStart.y = currentPos.y;
+      }
+    }
+  }
+
+  function handleInteractionEnd(e) {
     if (isDraggingNode && dragNode && !hasDragged) {
       window.open(dragNode.link, '_self');
     }
@@ -387,14 +424,14 @@
     dragNode = null;
     isPanning = false;
     canvas.style.cursor = 'grab';
+
+    // Resetta i dati touch
+    if (e.touches && e.touches.length === 0) {
+      touchDistance = null;
+    }
   }
 
-  canvas.addEventListener('mouseup', releaseInteraction);
-  canvas.addEventListener('mouseleave', () => {
-    isDraggingNode = false; dragNode = null; isPanning = false; canvas.style.cursor = 'grab';
-  });
-
-  canvas.addEventListener('wheel', e => {
+  function handleWheel(e) {
     e.preventDefault();
     const oldZoom = zoom;
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
@@ -406,11 +443,22 @@
     offsetX = (mouseX) / newZoom - worldX;
     offsetY = (mouseY) / newZoom - worldY;
     zoom = newZoom;
-  }, { passive: false });
+  }
+
+  // AGGIUNTA DEI LISTENER TOUCH
+  canvas.addEventListener('touchstart', handleInteractionStart, { passive: false });
+  canvas.addEventListener('touchmove', handleInteractionMove, { passive: false });
+  canvas.addEventListener('touchend', handleInteractionEnd);
+  
+  // MANTENUTO IL SUPPORTA MOUSE PER DESKTOP
+  canvas.addEventListener('mousedown', handleInteractionStart, { passive: false });
+  canvas.addEventListener('mousemove', handleInteractionMove, { passive: false });
+  canvas.addEventListener('mouseup', handleInteractionEnd);
+  canvas.addEventListener('mouseleave', handleInteractionEnd);
+  canvas.addEventListener('wheel', handleWheel, { passive: false });
 
   // Avvia il caricamento
   loadAssetsFromJSON('images.json');
-
 })();
 </script>
 
